@@ -1,0 +1,98 @@
+<?php
+
+/* Author: fym  */
+
+function nodeinfuture_nodeapi($node, $op, $arg = 0) {
+	$current = date("Y-m-d H:i:s") . " +0200";
+	switch ($op) {
+		
+		// make sure a node with a future date has status = 0
+		// because nid is not assigned in 'presave', mark this node for later 'insert' state
+		
+		case "presave":
+			$timeoffset = variable_get('date_default_timezone', '7200') / 3600;
+			$current = date("Y-m-d H:i:s") . ' +0' . $timeoffset . '00';
+			if (isset($node->date) && $node->date > $current) {
+				$node->status = 0;
+				$node->futurenode = "1";
+			}
+			return $node;
+      break;
+    
+    // if node is marked
+    // get the stored ids of other future nodes (if any) out of variable-table and append this nid
+    // unset 'mark' of the node - don't need it anymore
+    // msg user that node is published at a later date
+      
+    case "insert":
+		
+			if ($node->futurenode == "1") {
+				$placeholder = array();
+				$futurenodes = variable_get('nodesinfuture', $placeholder);	
+				$futurenodes[] = $node->nid;	
+				variable_set('nodesinfuture', $futurenodes);
+				unset($node->futurenode);
+				drupal_set_message('<strong><u>[zuk&uuml;nftig]</u></strong> ');
+			}
+			return $node;
+			break;
+		
+		// in case a node is edited and given a later date than the current
+		// there seems to be no need to explicitly set back status = 0 here, since Drupal does it on its own (???)
+					
+		case "update":
+			
+			if (isset($node->date) && $node->date > $current) {
+				$placeholder = array();
+				$futurenodes = variable_get('nodesinfuture', $placeholder);
+				if (!in_array($node->nid, $futurenodes)) {
+						$futurenodes[] = $node->nid;
+						variable_set('nodesinfuture', $futurenodes);
+						drupal_set_message('<strong><u>[zuk&uuml;nftig]</u></strong> ');
+				}
+			}			
+			return $node;
+			break;
+		
+		// in case a future node is deleted, also delete the corresponding nid from variable entry
+			
+		case "delete":
+			$placeholder = array();
+			$futurenodes = variable_get('nodesinfuture', $placeholder);
+			
+			if (in_array($node->nid, $futurenodes)) {
+					foreach ($futurenodes as $key=>$fnode) {
+							if ($fnode == $node->nid) {
+									unset($futurenodes[$key]);
+							}
+					}
+					variable_set('nodesinfuture', $futurenodes);
+			}
+			return $node;
+			break;
+	}
+}
+
+// execute on cron run, check all saved node ids
+// if their date is older than current -> status = 1 and save node
+
+function nodeinfuture_cron() {
+				
+		$checknodes = variable_get('nodesinfuture', 'none');				
+		if ($checknodes != 'none') {
+			
+					foreach ($checknodes as $key=>$ntc) {
+							$currentstamp = time();
+							$sql = "SELECT nid, created, status FROM {node} WHERE nid = %d";
+							$checknode = db_query($sql, $ntc);
+							while ($result = db_fetch_array($checknode)){
+									if ($currentstamp > $result['created']) {
+										$updatestatus = "UPDATE {node} SET status = '1' WHERE nid = '%d'";
+										db_query($updatestatus, $ntc);
+										unset($checknodes[$key]);
+									}
+							}
+					}
+					variable_set('nodesinfuture', $checknodes);
+		}
+}

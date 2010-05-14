@@ -1,0 +1,6 @@
+; $Id:  $
+name = Node in Future
+description = This module makes sure that nodes with a creation date in the future stay unpublished until that time.
+package = Other
+version = VERSION
+core = 6.x
